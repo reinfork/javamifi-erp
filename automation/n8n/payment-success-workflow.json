@@ -1,0 +1,43 @@
+{
+  "id": "javamifi-payment-success",
+  "name": "javamifi-payment-success-telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "payment-success",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "javamifi-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "payment-success",
+      "credentials": {
+        "httpHeaderAuth": { "id": "javamifi-header-auth", "name": "javamifi-header-auth" }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "<TELEGRAM_CHAT_ID>",
+        "text": "=New order {{ $json.body.orderNumber }}: {{ $json.body.customerName }} | {{ $json.body.deviceSerialNumber }} | Rp {{ $json.body.amount }} (New order, awaiting payment)",
+        "additionalFields": { "appendAttribution": false }
+      },
+      "id": "javamifi-telegram",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [500, 300],
+      "credentials": {
+        "telegramApi": { "id": "javamifi-telegram", "name": "javamifi-telegram" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Telegram", "type": "main", "index": 0 }]] }
+  }
+}

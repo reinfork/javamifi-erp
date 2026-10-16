@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("OPERATOR")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  source    String   @default("MANUAL")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    RentalOrder[]
+}
+
+model Device {
+  id                 String   @id @default(cuid())
+  serialNumber       String   @unique
+  modelName          String
+  price              Int      @default(150000)
+  rentalDurationDays Int      @default(7)
+  status             String   @default("AVAILABLE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       RentalOrder[]
+}
+
+model RentalOrder {
+  id                 String    @id @default(cuid())
+  orderNumber        String    @unique
+  customerId         String
+  customer           Customer  @relation(fields: [customerId], references: [id])
+  deviceId           String
+  device             Device    @relation(fields: [deviceId], references: [id])
+  amount             Int
+  status             String    @default("PENDING_PAYMENT")
+  rentalDurationDays Int       @default(7)
+  rentedAt           DateTime?
+  dueAt              DateTime?
+  returnedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  payment            Payment?
+}
+
+model Payment {
+  id                    String      @id @default(cuid())
+  rentalOrderId         String      @unique
+  order                 RentalOrder @relation(fields: [rentalOrderId], references: [id])
+  providerOrderId       String      @unique
+  midtransTransactionId String?
+  snapToken             String?
+  snapRedirectUrl       String?
+  snapExpiresAt         DateTime?
+  amount                Int
+  status                String      @default("PENDING")
+  paymentType           String?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+}
