@@ -1,61 +1,96 @@
 # JavaMifi Rental Desk (demo)
 
-Internal Micro-ERP demo for portable Wi-Fi rental ops: Orders, Inventory, Finance, operator login, DummyJSON import, Midtrans Snap Sandbox, n8n → Telegram on verified payment. Fictional data only.
+A small internal dashboard for a portable Wi-Fi rental operation: rent out devices, take payment, track inventory and money. All customers, serials, and prices are fictional.
+
+## Run it
+Make sure you had WSL/Docker Desktop running.
+
+1. Copy .env into project root directory
+
+```bash
+cp .env
+```
+fill your telegram bot ID & telegram chat ID to activate the n8n workflow. Make sure every mandatory variables is filled.
+
+
+2. Run the command
+```
+docker compose up -d --build
+```
+
+Migration and seeding run automatically inside the backend container.
+- Shop: http://localhost:5173
+- API: http://localhost:3000
+- n8n: http://localhost:5678
+- PostgreSQL: localhost:5432
+
+## Operator Credentials
+- email: admin@example.com
+- password: admin123
+
+these are defaults from .env, or change it directly from .env
+
+## Features
+
+- A main page shows devices list and payment checkout forms
+- Payment by midtrans (sandbox) along with webhook notifications
+- Modules management
+- Quick tunneling by cloudflare
+- n8n immediate telegram notification of arrived orders
 
 ## Architecture
 
-Modular monolith: one Express API, one PostgreSQL, one Prisma schema, React+Vite frontend, n8n container for automation. Orders/Inventory/Finance are in-process modules, no inter-service HTTP.
-
-- `backend/src/app.js` — routes; `auth.js`, `orders.js`, `directory.js` (devices/payments/customers/DummyJSON), `midtrans.js` (Snap + webhook + n8n notify), `config.js`, `server.js`
-- `frontend/src` — `App.jsx` (state switcher, no router), `api.js` (fetch + `sessionStorage` token), `ui.jsx` (minimal shadcn-style Button/Card/Input/Select/Badge), `pages/`
-- `automation/n8n/payment-success-workflow.json` — Webhook → Telegram `sendMessage`
-
-## Schema & statuses
-
-User (`OPERATOR`), Customer (email unique, `MANUAL`/`DUMMYJSON`), Device (serial, `price`, `rentalDurationDays`, `AVAILABLE`/`RESERVED`/`RENTED`, seeded `JM-WIFI-001..005` with distinct prices), RentalOrder (`PENDING_PAYMENT`/`RENTED`/`RETURNED`/`CANCELLED`, amount + duration snapshot from the device at checkout), Payment (`PENDING`/`PAID`/`FAILED`/`EXPIRED`, `providerOrderId` unique). One device per order, one payment per order. `RENTAL_PRICE_IDR`/`RENTAL_DURATION_DAYS` are seed defaults only.
-
-Key transitions (all Prisma transactions): checkout reserves `AVAILABLE→RESERVED` atomically (409 on race); verified `settlement`/`capture+accept` → `PAID`+`RENTED`+`RENTED` + `dueAt`, idempotent, never reverts `RETURNED`; `deny/cancel/expire` → `FAILED`/`EXPIRED` + cancel pending + release only if still `RESERVED`; return (`RENTED`-only) → `RETURNED`+`AVAILABLE` from Order Details.
+- `backend`: Express.js, JWT authentication
+- `database`: PostgreSQL
+- `ORM`: Prisma
+- `Frontend`: React.js + vite + shadcn
+- `Payment Gateway`: Midtrans (sandbox)
+- `Automation`: n8n (telegram)
+- `Tunnel`: Cloudflare Quick Tunnel (catch midtrans notification, used as node package)
 
 ## Modules
 
-Shop is the default landing page: all devices with prices and status badges (Rent disabled unless AVAILABLE), a sidebar with customer name/email, the selected device summary with total, and a Pay/Checkout button that opens Midtrans Snap. Shop checkout is public; it upserts the customer by email and reopens that email's live pending payment instead of duplicating it (a stale one cancels, releases, and recreates). Orders is a read-only history log: created/rented/due/returned dates, customer, device, amount, status; a RENTED order can be marked returned from its details. An Operator/Admin button leads to login and the Orders/Inventory/Finance modules. Seeded demo history (`JM-DEMO-0001..0004`) spans RETURNED/RENTED/PENDING_PAYMENT/CANCELLED. Inventory is full CRUD for devices (code/name/price); delete is blocked unless the device is AVAILABLE and has no rental history. Finance lists payments with status, amount, provider/txn ids, and created date.
+- **Shop** Shows all devices and checkout page
+- **Orders** — read-only rental history. Opening a `RENTED` order shows a Mark returned button.
+- **Inventory** — the devices with add/edit/delete.
+- **Finance** — every payment with status, amount, order number, and provider transaction ids.
+- **Login** — single operator account, seeded from environment values.
 
-> Deviations from AGENTS.md: a 4th page (Shop) with a public checkout (§2/§5); Orders has no create UI; Inventory gains device CRUD (§2/§10/§14 previously out of scope) and shows prices.
+## Workflow
 
-## Setup
+1. Open the shop, pick an available device, enter name + email, check out.
+2. Pay in the Midtrans Snap sandbox window.
+3. An immediate telegram notification will arrived from n8n (if you setup your telegram variables)
+4. Login as operator
+4. See the order as `RENTED` in Orders, the device as `RENTED` in Inventory, the payment as `PAID` in Finance, and the Telegram message.
+4. Open the order details, Mark returned — the device is `AVAILABLE` again.
 
-```bash
-cp .env.example .env   # fill secrets, never commit
-docker compose up --build
-# in backend container (or locally with DATABASE_URL set):
-npx prisma migrate deploy
-npm run seed   # repeatable upserts; or: node prisma/seed.js
-```
 
-Local dev without compose: `npm install` in both dirs, run postgres locally, `npx prisma migrate dev`, `npm run seed`, `node src/server.js` (:3000), `npm run dev` (:5173).
+## Data model and statuses
 
-## Midtrans Sandbox
+`User` (operator login) → `Customer` (unique email) → `RentalOrder` (one customer, one device) → `Payment` (one per order). `Device` carries its own price and rental duration, so editing a device changes future rentals but never past orders — each order snapshots the amount at checkout.
 
-Set `MIDTRANS_SERVER_KEY` (backend only) + `VITE_MIDTRANS_CLIENT_KEY` (browser). Checkout creates a Snap session server-side; browser gets only token. Truth comes from `POST /api/webhooks/midtrans` (SHA512 `order_id+status_code+gross_amount+server_key`, timing-safe compare, amount + order match, idempotent). Browser callbacks only refetch. Localhost is unreachable by Midtrans: use an HTTPS tunnel and set the notification URL in the Midtrans dashboard to `<public-url>/api/webhooks/midtrans`.
+- Device: `AVAILABLE` / `RESERVED` / `RENTED`
+- Rental order: `PENDING_PAYMENT` / `RENTED` / `RETURNED` / `CANCELLED`
+- Payment: `PENDING` / `PAID` / `FAILED` / `EXPIRED`
 
-Local tunnel (dev only): set `ENABLE_DEV_TUNNEL=true` and the backend self-opens a cloudflared quick tunnel on boot, logs its URL, and sends it as `X-Override-Notification` on each Snap request so that transaction notifies the tunnel without dashboard edits. `PUBLIC_BASE_URL` overrides it with a fixed origin when set. Never enable the tunnel in production.
+Checkout atomically reserves the device only if still available. A verified successful payment flips payment, order, and device in one transaction and sets the due date. Failed or expired payments cancel a still-pending order and free the device only if it's still reserved for it. Repeat notifications are harmless no-ops. Abandoned sessions are also swept to `EXPIRED` whenever a list view loads.
 
-## n8n → Telegram
 
-Notify fires on order creation (checkout, before payment), not on settlement — operator decision, deviates from `AGENTS.md` §2 step 7 / §9 "only after verified payment". Failures are logged and never block the order.
+## Payment (Midtrans Sandbox)
 
-Zero-click handoff: fill `N8N_WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN` (BotFather), `TELEGRAM_CHAT_ID` in `.env`, then `docker compose up`. On a fresh volume the n8n entrypoint runs `automation/n8n/seed.mjs`, which imports both credentials, the workflow (fixed id `javamifi-payment-success`), and publishes it, so `POST http://n8n:5678/webhook/payment-success` is live immediately. This replaces the spec's manual UI setup (§9) — secrets still never touch the repo. First message the bot once (so it can see the chat), or delivery fails at Telegram's side.
+Sandbox only. The server key stays in the backend; the browser only ever receives a Snap token. Checkout creates the Snap session server-side; payment truth comes exclusively from `POST /api/webhooks/midtrans`, which checks the SHA512 signature and the amount before touching anything. Browser callbacks (`onSuccess`, `onClose`, …) only refresh the page.
 
-Preservation: n8n state lives in the `n8n-data` volume. `docker compose down` keeps it; `docker compose down -v` wipes credentials + workflow + activation (and the database) — the next boot re-seeds from `.env`. Keep `N8N_ENCRYPTION_KEY` fixed or existing credentials stop decrypting. Seeding runs first-boot only; later JSON edits need a manual re-import/publish.
+Midtrans cannot reach `localhost`, so with `ENABLE_DEV_TUNNEL=true` the backend opens its own Cloudflare quick tunnel on boot, logs the URL, and attaches it to every Snap request — no Midtrans dashboard edit needed. Set `PUBLIC_BASE_URL` instead if you have a fixed public origin. The tunnel URL is random per backend restart, so only sessions created after a restart notify the current URL.
 
-## Happy path
+Note: Midtrans may add a small customer-paid fee on top of our amount; the backend compares the base amount it reports, so the fee doesn't break verification.
 
-Login → Import Demo Customer → select customer + available device → Checkout → pay in Snap sandbox → (webhook) Orders/Inventory/Finance update + Telegram message → Order Details → Mark returned → device `AVAILABLE`.
+## Telegram (n8n)
 
-Unfinished checkout: `POST /api/orders/:orderId/pay` returns the stored Snap session for a `PENDING_PAYMENT` order (same token, no new Midtrans session); `410` when the session expired → create a new rental. Webhook transitions are atomic claims: concurrent or late duplicates are no-ops, and a late success/failure never revives or downgrades a terminal order.
+Every new order fires one Telegram message (order number, customer, device, amount). On a fresh n8n volume the container imports both credentials, the workflow, and publishes it automatically — zero clicks. Set in `.env`:
 
-## Deviations & limits
+- `N8N_WEBHOOK_SECRET` — shared header secret, backend and n8n must agree
+- `TELEGRAM_BOT_TOKEN` — the full BotFather token (`123456:ABC…`, not just the numeric part)
+- `TELEGRAM_CHAT_ID` — the numeric chat id
 
-- Telegram used instead of `AGENTS.md` Discord; backend→n8n contract unchanged.
-- shadcn allowed per `AGENTS.md` §18; still no router/store/Axios, plain JS.
-- Verified: frontend `npm run build` OK, backend syntax OK, `prisma generate` OK, signature/state-predicate unit check OK. Live `migrate deploy` + seed + compose run blocked: Docker daemon unavailable in this environment (`dockerDesktopLinuxEngine` pipe missing); run the commands above on a host with Docker Desktop running.
+Message the bot once first, or Telegram refuses delivery. State lives in the `n8n-data` volume: plain `down` keeps it, `down -v` wipes it (the next boot re-seeds from `.env`). Keep `N8N_ENCRYPTION_KEY` unchanged or existing credentials stop decrypting. Seeding runs on first boot only; later workflow edits need a manual re-import.
