@@ -1,26 +1,32 @@
 # JavaMifi Rental Desk (demo)
 
-A small internal dashboard for a portable Wi-Fi rental operation: rent out devices, take payment, track inventory and money. All customers, serials, and prices are fictional.
+A small internal dashboard for a portable Wi-Fi rental operation: rent out devices, take payment, track inventory and payments.
 
-## Run it
+## How to run 
 Make sure you had WSL/Docker Desktop running.
 
-1. Copy .env into project root directory
+1. Copy the repository into your machine
+```
+git init
+git remote add origin https://github.com/reinfork/javamifi-erp.git
+git pull origin main
+```
 
-```bash
+2. Copy .env into project root directory
+```
 cp .env
 ```
-fill your telegram bot ID & telegram chat ID to activate the n8n workflow. Make sure every mandatory variables is filled.
+fill your `TELEGRAM_BOT_TOKEN` & `TELEGRAM_CHAT_ID` to activate the n8n workflow
+https://gist.github.com/nafiesl/4ad622f344cd1dc3bb1ecbe468ff9f8a
 
-
-2. Run the command
+3. Run the command
 ```
 docker compose up -d --build
 ```
 
-Migration and seeding run automatically inside the backend container.
-- Shop: http://localhost:5173
-- API: http://localhost:3000
+Migration and seeding run automatically.
+- Frontend: http://localhost:5173
+- Backend: http://localhost:3000
 - n8n: http://localhost:5678
 - PostgreSQL: localhost:5432
 
@@ -28,15 +34,10 @@ Migration and seeding run automatically inside the backend container.
 - email: admin@example.com
 - password: admin123
 
-these are defaults from .env, or change it directly from .env
-
-## Features
-
-- A main page shows devices list and payment checkout forms
-- Payment by midtrans (sandbox) along with webhook notifications
-- Modules management
-- Quick tunneling by cloudflare
-- n8n immediate telegram notification of arrived orders
+## Key Features
+- Idempotent Payment: no double payment if there is a pending status
+- Payment Webhook: catch status update for Midtrans using Cloudflared
+- Order notification: instant notification through telegram using n8n
 
 ## Architecture
 
@@ -75,22 +76,3 @@ these are defaults from .env, or change it directly from .env
 - Payment: `PENDING` / `PAID` / `FAILED` / `EXPIRED`
 
 Checkout atomically reserves the device only if still available. A verified successful payment flips payment, order, and device in one transaction and sets the due date. Failed or expired payments cancel a still-pending order and free the device only if it's still reserved for it. Repeat notifications are harmless no-ops. Abandoned sessions are also swept to `EXPIRED` whenever a list view loads.
-
-
-## Payment (Midtrans Sandbox)
-
-Sandbox only. The server key stays in the backend; the browser only ever receives a Snap token. Checkout creates the Snap session server-side; payment truth comes exclusively from `POST /api/webhooks/midtrans`, which checks the SHA512 signature and the amount before touching anything. Browser callbacks (`onSuccess`, `onClose`, …) only refresh the page.
-
-Midtrans cannot reach `localhost`, so with `ENABLE_DEV_TUNNEL=true` the backend opens its own Cloudflare quick tunnel on boot, logs the URL, and attaches it to every Snap request — no Midtrans dashboard edit needed. Set `PUBLIC_BASE_URL` instead if you have a fixed public origin. The tunnel URL is random per backend restart, so only sessions created after a restart notify the current URL.
-
-Note: Midtrans may add a small customer-paid fee on top of our amount; the backend compares the base amount it reports, so the fee doesn't break verification.
-
-## Telegram (n8n)
-
-Every new order fires one Telegram message (order number, customer, device, amount). On a fresh n8n volume the container imports both credentials, the workflow, and publishes it automatically — zero clicks. Set in `.env`:
-
-- `N8N_WEBHOOK_SECRET` — shared header secret, backend and n8n must agree
-- `TELEGRAM_BOT_TOKEN` — the full BotFather token (`123456:ABC…`, not just the numeric part)
-- `TELEGRAM_CHAT_ID` — the numeric chat id
-
-Message the bot once first, or Telegram refuses delivery. State lives in the `n8n-data` volume: plain `down` keeps it, `down -v` wipes it (the next boot re-seeds from `.env`). Keep `N8N_ENCRYPTION_KEY` unchanged or existing credentials stop decrypting. Seeding runs on first boot only; later workflow edits need a manual re-import.
