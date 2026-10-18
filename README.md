@@ -58,9 +58,9 @@ Migration and seeding run automatically.
 ## Workflow
 
 1. Open the shop, pick an available device, enter name + email, check out.
-2. Pay in the Midtrans Snap sandbox window.
-3. An immediate telegram notification will arrived from n8n (if you setup your telegram variables)
-4. Login as operator
+2. Pay in the Midtrans Snap sandbox window. https://simulator.sandbox.midtrans.com/
+4. An immediate telegram notification will arrived from n8n (if you setup your telegram variables)
+5. Login as operator
 4. See the order as `RENTED` in Orders, the device as `RENTED` in Inventory, the payment as `PAID` in Finance, and the Telegram message.
 4. Open the order details, Mark returned — the device is `AVAILABLE` again.
 
