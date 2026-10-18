@@ -7,9 +7,7 @@ Make sure you had WSL/Docker Desktop running.
 
 1. Copy the repository into your machine
 ```
-git init
-git remote add origin https://github.com/reinfork/javamifi-erp.git
-git pull origin main
+git clone https://github.com/reinfork/javamifi-erp.git
 ```
 
 2. Copy .env into project root directory
